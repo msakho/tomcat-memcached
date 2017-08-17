@@ -1,0 +1,37 @@
+#!/bin/bash
+
+# Compute available memory
+CONTAINER_HEAP_PERCENT=${CONTAINER_HEAP_PERCENT:-0.50}
+CONTAINER_MEMORY_IN_BYTES=`cat /sys/fs/cgroup/memory/memory.limit_in_bytes`
+DEFAULT_MEMORY_CEILING=$((2**40-1))
+if [ "${CONTAINER_MEMORY_IN_BYTES}" -lt "${DEFAULT_MEMORY_CEILING}" ]; then
+    CONTAINER_MEMORY_IN_MB=$((${CONTAINER_MEMORY_IN_BYTES}/1024**2))
+    CONTAINER_HEAP_MAX=$(echo "${CONTAINER_MEMORY_IN_MB} ${CONTAINER_HEAP_PERCENT}" | awk '{ printf "%d", $1 * $2 }')
+    export JAVA_OPTS_MEM="-Xms${CONTAINER_HEAP_MAX}m -Xmx${CONTAINER_HEAP_MAX}m"
+fi
+
+if [ -z $JAVA_GC_OPTS ]; then
+    # note - MaxPermSize no longer valid with v8 of the jdk ... used to have -XX:MaxPermSize=100m
+    JAVA_GC_OPTS="-XX:+UseParallelGC"
+fi
+if [ ! -z "${CONTAINER_CORE_LIMIT}" ]; then
+    JAVA_CORE_LIMIT="-XX:ParallelGCThreads=${CONTAINER_CORE_LIMIT} -Djava.util.concurrent.ForkJoinPool.common.parallelism=${CONTAINER_CORE_LIMT} -XX:CICompilerCount=2"
+fi
+if [ ! -z "${USE_JAVA_DIAGNOSTICS}" ]; then
+    JAVA_DIAGNOSTICS="-XX:NativeMemoryTracking=summary -XX:+PrintGC -XX:+PrintGCDateStamps -XX:+PrintGCTimeStamps -XX:+UnlockDiagnosticVMOptions"
+fi
+
+export MEMCACHE1=${MEMCACHE1_SERVICE_HOST}
+export MEMCACHE2=${MEMCACHE2_SERVICE_HOST}
+export MEMCACHE1_PORT=${MEMCACHE1_SERVICE_PORT}
+export MEMCACHE2_PORT=${MEMCACHE2_SERVICE_PORT}
+export MEMCACHE_NODES=n1:${MEMCACHE1}:${MEMCACHE1_PORT},n2:${MEMCACHE2}:${MEMCACHE2_PORT}
+
+#sed -i s/memcachedNodes=\"n1:memcached1:11211,n2:memcached2:11211\"/memcachedNodes=\"$MEMCACHE_NODES\"/g /usr/local/tomcat/conf/context.xml
+
+export JAVA_OPTS="${JAVA_OPTS_MEM} ${JAVA_CORE_LIMIT} ${JAVA_DIAGNOSTICS} ${JAVA_OPTS}"
+echo JAVA_OPTS=${JAVA_OPTS}
+
+# Remove OC client
+cp /dev/null /usr/bin/oc
+exec /usr/local/tomcat/bin/catalina.sh run

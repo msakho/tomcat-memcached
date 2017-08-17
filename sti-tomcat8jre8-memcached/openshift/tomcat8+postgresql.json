@@ -1,0 +1,204 @@
+--- 
+apiVersion: v1
+kind: Template
+labels: 
+  template: "tomcat8-jre8-volume"
+metadata: 
+  annotations: 
+    description: "Tomcat 8 with Java 8, you can add a link to a PostgreSQL pod. Pods share a volume"
+    iconClass: icon-tomcat
+    tags: "java,git,postgresql"
+  name: "tomcat8-jre8-volume"
+objects: 
+  - 
+    apiVersion: v1
+    kind: Service
+    metadata: 
+      annotations: 
+        description: "Exposes and load balances the application pods"
+      name: "${PROJECT}-${ENV}"
+    spec: 
+      ports: 
+        - 
+          name: web
+          port: 8080
+          targetPort: 8080
+      selector:
+        name: "${PROJECT}-${ENV}"
+  - 
+    apiVersion: v1
+    kind: Route
+    metadata: 
+      name: "${PROJECT}-${ENV}"
+    spec: 
+      host: "${APPLICATION_DOMAIN}"
+      to: 
+        kind: Service
+        name: "${PROJECT}-${ENV}"
+      selector:
+        name: "${PROJECT}-${ENV}"
+  - 
+    apiVersion: v1
+    kind: ImageStream
+    metadata: 
+      annotations: 
+        description: "Keeps track of changes in the application image"
+      name: "${PROJECT}"
+  -
+    apiVersion: v1
+    kind: BuildConfig
+    metadata: 
+      annotations: 
+        description: "Defines how to build the application"
+      name: "${PROJECT}-${ENV}"
+    spec: 
+      output: 
+        to: 
+          kind: ImageStreamTag
+          name: "${PROJECT}:${ENV}"
+      source: 
+        git: 
+          ref: "${SOURCE_REPOSITORY_REF}"
+          uri: "${SOURCE_REPOSITORY_URL}"
+        sourceSecret:
+          name: secret-gitlab
+        type: Git
+      strategy: 
+        sourceStrategy: 
+          from: 
+            kind: ImageStreamTag
+            name: "tomcat8jre8:latest"
+            namespace: openshift
+        type: Source
+      triggers: 
+        - 
+          type: ImageChange
+      selector:
+        name: "${PROJECT}-${ENV}"
+  - 
+    apiVersion: v1
+    kind: DeploymentConfig
+    metadata: 
+      annotations: 
+        description: "Defines how to deploy the application server"
+      name: "${PROJECT}-${ENV}"
+    spec: 
+      replicas: 1
+      selector: 
+        name: "${PROJECT}-${ENV}"
+      strategy:
+        type: Recreate
+        recreateParams: 
+          pre:
+            failurePolicy: Abort
+            execNewPod: 
+              command:
+                - "${PREHOOK_COMMAND}"
+              containerName: "${PROJECT}"
+      template: 
+        metadata: 
+          labels: 
+            name: "${PROJECT}-${ENV}"
+          name: "${PROJECT}-${ENV}"
+        spec: 
+          containers: 
+            - 
+              env: 
+                - 
+                  name: DATABASE_SERVICE_NAME
+                  value: "${DATABASE_NAME}"
+                - 
+                  name: DATABASE_ENGINE
+                  value: "${DATABASE_ENGINE}"
+                - 
+                  name: DATABASE_NAME
+                  value: "${DATABASE_NAME}"
+                - 
+                  name: DATABASE_USER
+                  value: "${DATABASE_USER}"
+                - 
+                  name: DATABASE_PASSWORD
+                  value: "${DATABASE_PASSWORD}"
+              image: "${PROJECT}:${ENV}"
+              name: "${PROJECT}"
+              ports: 
+                - 
+                  containerPort: 8080
+              volumeMounts:
+                -
+                  name: "app-data"
+                  mountPath: "${APP_FOLDER_SHARE}"
+          volumes:
+            -
+              name: "app-data"
+              persistentVolumeClaim:
+                claimName: ${PROJECT}-${ENV}
+      triggers: 
+        - 
+          imageChangeParams: 
+            automatic: true
+            containerNames: 
+              - "${PROJECT}"
+            from: 
+              kind: ImageStreamTag
+              name: "${PROJECT}:${ENV}"
+          type: ImageChange
+        - 
+          type: ConfigChange
+  -
+    apiVersion: v1
+    kind: PersistentVolumeClaim
+    metadata: 
+      name: ${PROJECT}-${ENV}
+    spec: 
+      accessModes: 
+        - ReadWriteMany
+      resources: 
+        requests: 
+          storage: 1Gi
+parameters: 
+  -
+    description: "Name of the project"
+    name: PROJECT
+    value: "mytomcat8project" 
+  -
+    description: "Project environment"
+    name: ENV
+    value: "dev"
+  - 
+    description: "Route for application"
+    name: APPLICATION_DOMAIN
+    value: "tomcat8project.corp.my"
+  -
+    description: "Git URL"
+    name: SOURCE_REPOSITORY_URL
+    value: "http://gitlab.corp.my/User/webapp.git"
+  - 
+    description: "Branch to listen"
+    name: SOURCE_REPOSITORY_REF
+    value: "master"
+  -
+    description: "Prehook command after build and before deploy"
+    name: "PREHOOK_COMMAND"
+    value: ./update-database.sh
+  -
+    description: "folder share in the application"
+    name: "APP_FOLDER_SHARE"
+    value: "/shared"
+  -
+    description: "Database engine Postgres or Mysql"
+    name: "DATABASE_ENGINE"
+    value: "Postgres"
+  - 
+    description: "Database name"
+    name: DATABASE_NAME
+    value: postgresqldev
+  - 
+    description: "Database user name"
+    name: DATABASE_USER
+    value: testdev
+  - 
+    description: "Database user password"
+    from: "[a-zA-Z0-9]{16}"
+    generate: expression
+    name: DATABASE_PASSWORD

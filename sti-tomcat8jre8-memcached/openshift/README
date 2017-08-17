@@ -1,0 +1,42 @@
+# First create the ImageSTream :
+
+oc create -f tomcat8-is.json -n openshift
+
+# Create the secret for you Git repository :
+
+oc create -f secret-github.json -n myproject
+
+# Then add a reference in a build configuration :
+
+-
+    apiVersion: v1
+    kind: BuildConfig
+    metadata:
+      annotations:
+        description: "Defines how to build the application"
+      name: "${PROJECT}-${ENV}"
+    spec:
+      output:
+        to:
+          kind: ImageStreamTag
+          name: "${PROJECT}:${ENV}"
+      source:
+        git:
+          ref: "${SOURCE_REPOSITORY_REF}"
+          uri: "${SOURCE_REPOSITORY_URL}"
+        sourceSecret:
+          name: secret-gitlab
+        type: Git
+      strategy:
+        sourceStrategy:
+          from:
+            kind: ImageStreamTag
+            name: "tomcat8jre8:latest"
+            namespace: openshift
+        type: Source
+      triggers:
+        -
+          type: ImageChange
+      selector:
+        name: "${PROJECT}-${ENV}"
+
